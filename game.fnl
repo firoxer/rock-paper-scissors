@@ -1,5 +1,6 @@
 (local repl (require "lib.repl"))
 (local lume (require "lib.lume"))
+(local profile (require :lib.profile))
 
 (local config
   {:entities-per-type 200
@@ -89,6 +90,19 @@
       (set dy (+ dy vy)))
     (set entity.x (lume.clamp (+ entity.x (* dx config.speed)) 0 1))
     (set entity.y (lume.clamp (+ entity.y (* dy config.speed)) 0 1))))
+
+(local profiling? false)
+(when profiling?
+  (var frames-since-last-report 0)
+  (let [update love.update
+        update* (fn [...]
+                  (if (> frames-since-last-report 30)
+                    (do (print (profile.report 20))
+                        (set frames-since-last-report 0))
+                    (set frames-since-last-report (+ 1 frames-since-last-report)))
+                  (update ...))]
+    (profile.start)
+    (set love.update update*)))
 
 (fn love.keypressed [key]
   (when (= "escape" key)
