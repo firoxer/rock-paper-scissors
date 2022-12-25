@@ -93,30 +93,32 @@
   (when (= "escape" key)
     (love.event.quit)))
 
-(fn screen-x [x]
-  (lume.lerp 5 (- (love.graphics.getWidth) 5) x)) ; Some margin to show entities at edges
-
-(fn screen-y [y]
-  (lume.lerp 5 (- (love.graphics.getHeight) 5) y)) ; Some margin to show entities at edges
-
-(love.graphics.setLineWidth 3)
-
 (local rock-color [(lume.color "#4FC47F")])
 (local paper-color [(lume.color "#009CFF")])
 (local scissors-color [(lume.color "#F0330F")])
 
 (fn love.draw []
   (love.graphics.clear [1 1 1])
-  (each [_ {: t : x : y} (ipairs state.entities)]
-    (match t
-      :rock     (do (love.graphics.setColor rock-color)
-                    (love.graphics.circle :fill (screen-x x) (screen-y y) 5))
-      :paper    (do (love.graphics.setColor paper-color)
-                    (love.graphics.rectangle :fill (- (screen-x x) 5) (- (screen-y y) 5) 10 10))
-      :scissors (do (love.graphics.setColor scissors-color)
-                    (love.graphics.line (- (screen-x x) 5) (- (screen-y y) 5)
-                                        (+ (screen-x x) 5) (+ (screen-y y) 5))
-                    (love.graphics.line (- (screen-x x) 5) (+ (screen-y y) 5)
-                                        (+ (screen-x x) 5) (- (screen-y y) 5)))))
-  (love.graphics.setColor [0 0 0])
-  (love.graphics.print (love.timer.getFPS) 16 16))
+  (let [screen-width (love.graphics.getWidth)
+        screen-height (love.graphics.getHeight)
+        scale-x #(lume.lerp 5 (- screen-width 5) $) ; Some margin to show entities at edges
+        scale-y #(lume.lerp 5 (- screen-height 5) $) ; Some margin to show entities at edges
+        entity-size (scale-x 0.005)
+        entity-half-size (/ entity-size 2)] 
+    (love.graphics.setLineWidth (* entity-size 0.3))
+    (each [_ {: t : x : y} (ipairs state.entities)]
+      (match t
+        :rock     (do (love.graphics.setColor rock-color)
+                      (love.graphics.circle :fill (scale-x x) (scale-y y) entity-half-size))
+        :paper    (do (love.graphics.setColor paper-color)
+                      (love.graphics.rectangle :fill (- (scale-x x) entity-half-size)
+                                                     (- (scale-y y) entity-half-size)
+                                                     entity-size
+                                                     entity-size))
+        :scissors (do (love.graphics.setColor scissors-color)
+                      (love.graphics.line (- (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)
+                                          (+ (scale-x x) entity-half-size) (+ (scale-y y) entity-half-size))
+                      (love.graphics.line (- (scale-x x) entity-half-size) (+ (scale-y y) entity-half-size)
+                                          (+ (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)))))
+    (love.graphics.setColor [0 0 0])
+    (love.graphics.print (love.timer.getFPS) 16 16)))
