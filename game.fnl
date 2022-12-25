@@ -41,7 +41,7 @@
 (fn can-eat? [a b]
   (and a
        (= a.t (. enemy-map b.t))
-       (< (lume.distance a.x a.y b.x b.y) 0.02)))
+       (< (lume.distance a.x a.y b.x b.y true) 0.0004))) ; 0.02 with square root
 
 (fn find-nearest-of-type [t x y]
   (var nearest-distance math.huge)
