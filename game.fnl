@@ -104,6 +104,20 @@
     (profile.start)
     (set love.update update*)))
 
+(local reporting-average-fps? true)
+(when reporting-average-fps?
+  (local fpss [])
+  (let [update love.update
+        update* (fn [...]
+                  (when (> (length fpss) 5)
+                    (table.remove fpss 1))
+                  (table.insert fpss (love.timer.getFPS))
+                  (print (/ (accumulate [sum 0
+                                         _ fps (ipairs fpss)] (+ sum fps))
+                            (length fpss)))
+                  (update ...))]
+    (set love.update update*)))
+
 (fn love.keypressed [key]
   (when (= "escape" key)
     (love.event.quit)))
