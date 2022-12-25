@@ -24,7 +24,8 @@
 (fn love.load []
   (repl.start)
   (reset-state!)
-  (love.window.setFullscreen true))
+  (love.window.setMode 800 600 {:resizable true})
+  (love.window.maximize))
 
 (local lunch-map
   {:rock :scissors
