@@ -1,126 +1,89 @@
-(local repl (require "lib.repl"))
-(local lume (require "lib.lume"))
+(local lume (require :lib.lume))
 (local profile (require :lib.profile))
 
-(local config
-  {:entities-per-type 200
-   :speed 0.05})
+(local quadtree (require :quadtree))
 
-(local state {:entities []})
+(local entity-n 100)
+(local minimum-eat-distance (math.pow 0.02 2)) ; precalculated for performance
 
-(fn reset-state! []
-  (set state.entities [])
-  (for [_ 1 config.entities-per-type]
-    (each [_ t (ipairs [:rock :paper :scissors])]
-      (table.insert state.entities {:x (love.math.random) :y (love.math.random) :t t}))))
+(fn generate-entities [n]
+  (local entities (quadtree.new))
+  (for [_ 1 n]
+    (quadtree.insert entities {:x (love.math.random)
+                               :y (love.math.random)
+                               :t (lume.randomchoice [:rock :paper :scissors])}))
+  entities)
 
-(fn all-types-are-same? []
-  (var first-type-found (. state.entities 1 :t))
-  (var reset? true)
-  (each [_ {: t} (ipairs state.entities) &until (not reset?)]
-    (when (not= t first-type-found)
-      (set reset? false)))
-  reset?)
+(fn count-type-n [entities]
+  (local counts {:rock 0 :paper 0 :scissors 0})
+  (each [entity (quadtree.walk entities)]
+    (tset counts entity.t (+ (. counts entity.t) 1)))
+  counts)
+
+(fn eats? [a b]
+  (or (and (= a.t :rock) (= b.t :scissors))
+      (and (= a.t :paper) (= b.t :rock))
+      (and (= a.t :scissors) (= b.t :paper))))
+
+(fn eaten-by? [a b]
+  (or (and (= a.t :rock) (= b.t :paper))
+      (and (= a.t :paper) (= b.t :scissors))
+      (and (= a.t :scissors) (= b.t :rock))))
+
+(fn friends? [a b]
+  (= a.t b.t))
+
+(fn can-eat? [a b]
+  (and (eats? a b)
+       (let [squared-distance (lume.distance a.x a.y b.x b.y true)]
+         (< 0 squared-distance minimum-eat-distance))))
+
+(fn find-winner [entities]
+  (let [{: rock : paper : scissors} (count-type-n entities)]
+    (if (= rock 0) :paper
+        (= paper 0) :scissors
+        (= scissors 0) :rock)))
+
+(fn next-entities [entities]
+  (let [speed 0.001
+        new-entities (quadtree.new)]
+    (each [{: x : y : t &as entity} (quadtree.walk entities)]
+      (local new-entity (lume.clone entity))
+      (var dx 0)
+      (var dy 0)
+      (each [neighbor (quadtree.nearest-neighbors 3 entities x y {:ignore-exact? true})]
+        (when (can-eat? neighbor entity)
+          (set new-entity.t neighbor.t))
+        (let [magnitude (if (eaten-by? entity neighbor) -1
+                            (eats? entity neighbor) 1
+                            (friends? entity neighbor) -0.1)
+              (vx vy) (lume.vector (lume.angle x y neighbor.x neighbor.y) magnitude)]
+          (set dx (+ dx vx))
+          (set dy (+ dy vy))))
+      ; Pull to middle
+      (let [(vx vy) (lume.vector (lume.angle x y 0.5 0.5)
+                                 (lume.distance x y 0.5 0.5 true))]
+        (set dx (+ dx vx))
+        (set dy (+ dy vy)))
+      (set new-entity.x (lume.clamp (+ x (* dx speed)) 0 1))
+      (set new-entity.y (lume.clamp (+ y (* dy speed)) 0 1))
+      (or (quadtree.insert new-entities new-entity)
+          (quadtree.insert new-entities entity)))
+    new-entities))
+
+(var _entities nil)
 
 (fn love.load []
-  (repl.start)
-  (reset-state!)
+  (set _entities (generate-entities entity-n))
   (love.window.setMode 800 600 {:resizable true})
   (love.window.maximize))
 
-(local lunch-map
-  {:rock :scissors
-   :scissors :paper
-   :paper :rock})
-
-(local enemy-map
-  {:rock :paper
-   :paper :scissors
-   :scissors :rock})
-
-(fn can-eat? [a b]
-  (and a
-       (= a.t (. enemy-map b.t))
-       (< (lume.distance a.x a.y b.x b.y true) 0.0004))) ; 0.02 with square root
-
-(fn find-nearest-of-type [t x y]
-  (var nearest-distance math.huge)
-  (var nearest-entity nil)
-  (each [_ e (ipairs state.entities)]
-    (when (and (= t e.t)
-               (not= x e.x)
-               (not= y e.y))
-      (let [distance (lume.distance x y e.x e.y true)]
-        (when (< distance nearest-distance)
-          (set nearest-distance distance)
-          (set nearest-entity e)))))
-  nearest-entity)
-
 (fn love.update [dt]
-  (when (all-types-are-same?)
-    (reset-state!))
-  (each [_ {: x : y : t &as entity} (ipairs state.entities)]
-    (let [enemy (find-nearest-of-type (. enemy-map t) x y)]
-      (when (can-eat? enemy entity)
-        (set entity.t enemy.t)))
-    (var dx 0)
-    (var dy 0)
-    (let [enemy (find-nearest-of-type (. enemy-map entity.t) x y)]
-      (when enemy
-        (let [(vx vy) (lume.vector (lume.angle x y enemy.x enemy.y)
-                                   (* -1 dt))]
-          (set dx (+ dx vx))
-          (set dy (+ dy vy)))))
-    (let [mate (find-nearest-of-type entity.t x y)]
-      (when mate
-        (let [(vx vy) (lume.vector (lume.angle x y mate.x mate.y)
-                                   (* -1 0.2 dt))]
-          (set dx (+ dx vx))
-          (set dy (+ dy vy)))))
-    (let [lunch (find-nearest-of-type (. lunch-map entity.t) x y)]
-      (when lunch
-        (let [(vx vy) (lume.vector (lume.angle x y lunch.x lunch.y)
-                                   (* dt))]
-          (set dx (+ dx vx))
-          (set dy (+ dy vy)))))
-    ; Pull to middle
-    (let [(vx vy) (lume.vector (lume.angle x y 0.5 0.5)
-                               (* (lume.distance x y 0.5 0.5 true) dt))]
-      (set dx (+ dx vx))
-      (set dy (+ dy vy)))
-    (set entity.x (lume.clamp (+ entity.x (* dx config.speed)) 0 1))
-    (set entity.y (lume.clamp (+ entity.y (* dy config.speed)) 0 1))))
-
-(local profiling? false)
-(when profiling?
-  (var frames-since-last-report 0)
-  (let [update love.update
-        update* (fn [...]
-                  (if (> frames-since-last-report 30)
-                    (do (print (profile.report 20))
-                        (set frames-since-last-report 0))
-                    (set frames-since-last-report (+ 1 frames-since-last-report)))
-                  (update ...))]
-    (profile.start)
-    (set love.update update*)))
-
-(local reporting-average-fps? true)
-(when reporting-average-fps?
-  (local fpss [])
-  (let [update love.update
-        update* (fn [...]
-                  (when (> (length fpss) 5)
-                    (table.remove fpss 1))
-                  (table.insert fpss (love.timer.getFPS))
-                  (print (/ (accumulate [sum 0
-                                         _ fps (ipairs fpss)] (+ sum fps))
-                            (length fpss)))
-                  (update ...))]
-    (set love.update update*)))
-
-(fn love.keypressed [key]
-  (when (= "escape" key)
-    (love.event.quit)))
+  (let [winner (find-winner _entities)]
+    (when winner
+      (print (.. winner " won"))
+      (set _entities (generate-entities entity-n))))
+  (set _entities (next-entities _entities)))
 
 (local rock-color [(lume.color "#4FC47F")])
 (local paper-color [(lume.color "#009CFF")])
@@ -135,15 +98,17 @@
         entity-size (scale-x 0.005)
         entity-half-size (/ entity-size 2)] 
     (love.graphics.setLineWidth (* entity-size 0.3))
-    (each [_ {: t : x : y} (ipairs state.entities)]
+    (each [{: x : y : t} (quadtree.walk _entities)]
       (match t
-        :rock     (do (love.graphics.setColor rock-color)
-                      (love.graphics.circle :fill (scale-x x) (scale-y y) entity-half-size))
-        :paper    (do (love.graphics.setColor paper-color)
-                      (love.graphics.rectangle :fill (- (scale-x x) entity-half-size)
-                                                     (- (scale-y y) entity-half-size)
-                                                     entity-size
-                                                     entity-size))
+        :rock (do (love.graphics.setColor rock-color)
+                  (love.graphics.circle :fill (scale-x x)
+                                              (scale-y y)
+                                              entity-half-size))
+        :paper (do (love.graphics.setColor paper-color)
+                   (love.graphics.rectangle :fill (- (scale-x x) entity-half-size)
+                                                  (- (scale-y y) entity-half-size)
+                                                  entity-size
+                                                  entity-size))
         :scissors (do (love.graphics.setColor scissors-color)
                       (love.graphics.line (- (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)
                                           (+ (scale-x x) entity-half-size) (+ (scale-y y) entity-half-size))
@@ -151,3 +116,7 @@
                                           (+ (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)))))
     (love.graphics.setColor [0 0 0])
     (love.graphics.print (love.timer.getFPS) 16 16)))
+
+(fn love.keypressed [key]
+  (when (= "escape" key)
+    (love.event.quit)))
