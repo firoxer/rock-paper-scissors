@@ -6,84 +6,79 @@
 (local entity-n 100)
 (local minimum-eat-distance (math.pow 0.02 2)) ; precalculated for performance
 
-(fn generate-entities [n]
+(fn close-enough-to-eat? [a b]
+  (let [squared-distance (lume.distance a.x a.y b.x b.y true)]
+    (< 0 squared-distance minimum-eat-distance)))
+
+(fn next-entities [entities eaten-by eats]
+  (local new-entities (quadtree.new))
+  (each [{: x : y : t &as entity} (quadtree.walk entities)]
+    (var changes-tree-to nil)
+    (var dx 0)
+    (var dy 0)
+    (each [neighbor (quadtree.nearest-neighbors 1 eaten-by x y)]
+      (when (close-enough-to-eat? neighbor entity)
+        (set changes-tree-to eaten-by))
+      (let [magnitude -1 
+            (vx vy) (lume.vector (lume.angle x y neighbor.x neighbor.y) magnitude)]
+        (set dx (+ dx vx))
+        (set dy (+ dy vy))))
+    (each [neighbor (quadtree.nearest-neighbors 1 eats x y)]
+      (let [magnitude 1
+            (vx vy) (lume.vector (lume.angle x y neighbor.x neighbor.y) magnitude)]
+        (set dx (+ dx vx))
+        (set dy (+ dy vy))))
+    (each [neighbor (quadtree.nearest-neighbors 1 entities x y {:ignore-exact? true})]
+      (let [magnitude -0.1
+            (vx vy) (lume.vector (lume.angle x y neighbor.x neighbor.y) magnitude)]
+        (set dx (+ dx vx))
+        (set dy (+ dy vy))))
+    ; Pull to middle
+    (let [(vx vy) (lume.vector (lume.angle x y 0.5 0.5)
+                               (lume.distance x y 0.5 0.5 true))]
+      (set dx (+ dx vx))
+      (set dy (+ dy vy)))
+    (let [speed 0.001
+          new-x (lume.clamp (+ x (* dx speed)) 0 1)
+          new-y (lume.clamp (+ y (* dy speed)) 0 1)
+          new-tree (or changes-tree-to new-entities)]
+      (or (quadtree.insert new-tree {:x new-x :y new-y})
+          (quadtree.insert new-tree entity))))
+  new-entities)
+
+(fn generate-entities [n t]
   (local entities (quadtree.new))
   (for [_ 1 n]
     (quadtree.insert entities {:x (love.math.random)
-                               :y (love.math.random)
-                               :t (lume.randomchoice [:rock :paper :scissors])}))
+                               :y (love.math.random)}))
   entities)
 
-(fn count-type-n [entities]
-  (local counts {:rock 0 :paper 0 :scissors 0})
-  (each [entity (quadtree.walk entities)]
-    (tset counts entity.t (+ (. counts entity.t) 1)))
-  counts)
-
-(fn eats? [a b]
-  (or (and (= a.t :rock) (= b.t :scissors))
-      (and (= a.t :paper) (= b.t :rock))
-      (and (= a.t :scissors) (= b.t :paper))))
-
-(fn eaten-by? [a b]
-  (or (and (= a.t :rock) (= b.t :paper))
-      (and (= a.t :paper) (= b.t :scissors))
-      (and (= a.t :scissors) (= b.t :rock))))
-
-(fn friends? [a b]
-  (= a.t b.t))
-
-(fn can-eat? [a b]
-  (and (eats? a b)
-       (let [squared-distance (lume.distance a.x a.y b.x b.y true)]
-         (< 0 squared-distance minimum-eat-distance))))
-
-(fn find-winner [entities]
-  (let [{: rock : paper : scissors} (count-type-n entities)]
-    (if (= rock 0) :paper
-        (= paper 0) :scissors
-        (= scissors 0) :rock)))
-
-(fn next-entities [entities]
-  (let [speed 0.001
-        new-entities (quadtree.new)]
-    (each [{: x : y : t &as entity} (quadtree.walk entities)]
-      (local new-entity (lume.clone entity))
-      (var dx 0)
-      (var dy 0)
-      (each [neighbor (quadtree.nearest-neighbors 3 entities x y {:ignore-exact? true})]
-        (when (can-eat? neighbor entity)
-          (set new-entity.t neighbor.t))
-        (let [magnitude (if (eaten-by? entity neighbor) -1
-                            (eats? entity neighbor) 1
-                            (friends? entity neighbor) -0.1)
-              (vx vy) (lume.vector (lume.angle x y neighbor.x neighbor.y) magnitude)]
-          (set dx (+ dx vx))
-          (set dy (+ dy vy))))
-      ; Pull to middle
-      (let [(vx vy) (lume.vector (lume.angle x y 0.5 0.5)
-                                 (lume.distance x y 0.5 0.5 true))]
-        (set dx (+ dx vx))
-        (set dy (+ dy vy)))
-      (set new-entity.x (lume.clamp (+ x (* dx speed)) 0 1))
-      (set new-entity.y (lume.clamp (+ y (* dy speed)) 0 1))
-      (or (quadtree.insert new-entities new-entity)
-          (quadtree.insert new-entities entity)))
-    new-entities))
-
-(var _entities nil)
+(var _rock nil)
+(var _paper nil)
+(var _scissors nil)
 
 (fn love.load []
-  (set _entities (generate-entities entity-n))
+  (set _rock (generate-entities entity-n :rock))
+  (set _paper (generate-entities entity-n :paper))
+  (set _scissors (generate-entities entity-n :scissors))
   (love.window.setMode 800 600 {:resizable true})
   (love.window.maximize))
 
+(fn find-winner [rock paper scissors]
+  (if (quadtree.empty? rock) :paper
+      (quadtree.empty? paper) :scissors
+      (quadtree.empty? scissors) :rock))
+
 (fn love.update [dt]
-  (let [winner (find-winner _entities)]
+  (let [winner (find-winner _rock _paper _scissors)]
     (when winner
       (print (.. winner " won"))
-      (set _entities (generate-entities entity-n))))
-  (set _entities (next-entities _entities)))
+      (set _rock (generate-entities entity-n :rock))
+      (set _paper (generate-entities entity-n :paper))
+      (set _scissors (generate-entities entity-n :scissors))))
+  (set _rock (next-entities _rock _paper _scissors))
+  (set _paper (next-entities _paper _scissors _rock))
+  (set _scissors (next-entities _scissors _rock _paper)))
 
 (local rock-color [(lume.color "#4FC47F")])
 (local paper-color [(lume.color "#009CFF")])
@@ -98,22 +93,23 @@
         entity-size (scale-x 0.005)
         entity-half-size (/ entity-size 2)] 
     (love.graphics.setLineWidth (* entity-size 0.3))
-    (each [{: x : y : t} (quadtree.walk _entities)]
-      (match t
-        :rock (do (love.graphics.setColor rock-color)
-                  (love.graphics.circle :fill (scale-x x)
-                                              (scale-y y)
-                                              entity-half-size))
-        :paper (do (love.graphics.setColor paper-color)
-                   (love.graphics.rectangle :fill (- (scale-x x) entity-half-size)
-                                                  (- (scale-y y) entity-half-size)
-                                                  entity-size
-                                                  entity-size))
-        :scissors (do (love.graphics.setColor scissors-color)
-                      (love.graphics.line (- (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)
-                                          (+ (scale-x x) entity-half-size) (+ (scale-y y) entity-half-size))
-                      (love.graphics.line (- (scale-x x) entity-half-size) (+ (scale-y y) entity-half-size)
-                                          (+ (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)))))
+    (each [{: x : y : t} (quadtree.walk _rock)]
+      (love.graphics.setColor rock-color)
+      (love.graphics.circle :fill (scale-x x)
+                                  (scale-y y)
+                                  entity-half-size))
+    (each [{: x : y : t} (quadtree.walk _paper)]
+      (love.graphics.setColor paper-color)
+      (love.graphics.rectangle :fill (- (scale-x x) entity-half-size)
+                                     (- (scale-y y) entity-half-size)
+                                     entity-size
+                                     entity-size))
+    (each [{: x : y : t} (quadtree.walk _scissors)]
+      (love.graphics.setColor scissors-color)
+      (love.graphics.line (- (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)
+                             (+ (scale-x x) entity-half-size) (+ (scale-y y) entity-half-size))
+      (love.graphics.line (- (scale-x x) entity-half-size) (+ (scale-y y) entity-half-size)
+                              (+ (scale-x x) entity-half-size) (- (scale-y y) entity-half-size)))
     (love.graphics.setColor [0 0 0])
     (love.graphics.print (love.timer.getFPS) 16 16)))
 

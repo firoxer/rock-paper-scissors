@@ -124,10 +124,10 @@
         (let [to-yield (table.remove best)]
           (when (or (= ignore-exact? false)
                     (not= elem.value.x x) (not= elem.value.y y))
-            (coroutine.yield to-yield.value))
-          (set next-k (- next-k 1))
-          (when (= 0 next-k)
-            (lua "return")))
+            (coroutine.yield to-yield.value)
+            (set next-k (- next-k 1))
+            (when (= 0 next-k)
+              (lua "return"))))
         (set done true))))
   (let [{: nw : ne : sw : se} (table.remove best)]
     (when (not (empty? nw))
@@ -149,10 +149,14 @@
     (coroutine.wrap (fn []
                       (nearest-neighbors* k [node] x y opts*)))))
 
+(fn nearest-neighbor [node x y opts]
+  ((nearest-neighbors 1 node x y opts)))
+
 {: new
  : insert
  : remove
  : empty?
  : walk
  : size
- : nearest-neighbors}
+ : nearest-neighbors
+ : nearest-neighbor}
